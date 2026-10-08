@@ -1,0 +1,930 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Log Sentinel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  color-scheme:light;
+  --paper:#F4F6F8; --panel:#FFFFFF; --ink:#17212F; --muted:#718096; --rule:#E2E7ED;
+  --raw:#101A27; --raw-2:#192638; --raw-text:#DBE4EF; --raw-muted:#8493A7;
+  --crit:#D64750; --high:#D77B28; --med:#AE861B; --low:#268169; --accent:#346D9C;
+  --ui:'Instrument Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;
+  --shadow-sm:0 1px 2px rgba(21,35,52,.04),0 3px 10px rgba(21,35,52,.035);
+  --shadow-md:0 12px 30px rgba(21,35,52,.10),0 2px 8px rgba(21,35,52,.05);
+}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%}
+html{scroll-behavior:smooth}
+body{background:radial-gradient(ellipse at 12% 0%,rgba(69,111,151,.055),transparent 32rem),var(--paper);color:var(--ink);font:14px/1.55 var(--ui);-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+button{transition:background-color .18s ease,border-color .18s ease,color .18s ease,transform .18s ease,box-shadow .18s ease}
+:focus-visible{outline:3px solid rgba(75,139,188,.55);outline-offset:3px}
+code,.mono{font-family:var(--mono);font-size:.9em}
+.top{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:18px;min-height:68px;padding:12px 34px;background:rgba(16,26,39,.97);color:#fff;border-bottom:1px solid rgba(255,255,255,.06);box-shadow:0 4px 18px rgba(12,22,34,.12);backdrop-filter:blur(14px)}
+.brand{display:flex;align-items:center;gap:11px;font-weight:700;font-size:16px;letter-spacing:-.025em}
+.brand svg{width:30px;height:30px;padding:5px;border:1px solid rgba(61,220,151,.2);border-radius:9px;background:rgba(61,220,151,.055)}
+.sp{flex:1}
+.tot{color:#9BAABC;font-size:12px;font-variant-numeric:tabular-nums}
+.conn{display:inline-flex;align-items:center;gap:8px;padding:7px 12px;border:1px solid #2A3A4E;border-radius:7px;background:rgba(255,255,255,.025);color:#CBD5E1;cursor:pointer;font-size:12px}
+.conn:hover{border-color:#435970;background:rgba(255,255,255,.06)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--raw-muted)}
+.conn.polling .dot{background:#E2B44F}
+.conn.offline .dot{background:#EC6872}
+@keyframes status-breathe{50%{box-shadow:0 0 0 5px rgba(57,200,138,.02)}}
+.btn{padding:9px 15px;border-radius:7px;border:1px solid #D9E0E8;background:#fff;cursor:pointer;font-weight:600;font-size:13px;box-shadow:0 1px 1px rgba(20,35,50,.025)}
+.btn:hover{border-color:#AAB8C6;background:#F9FBFC;transform:translateY(-1px)}
+.btn:active{transform:translateY(0)}
+.btn.primary{background:#337A70;border-color:#337A70;color:#fff;box-shadow:0 3px 8px rgba(39,108,97,.18)}
+.btn.primary:hover{background:#28695F;border-color:#28695F;box-shadow:0 5px 14px rgba(39,108,97,.24)}
+.dashboard-intro{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;padding:30px 34px 23px;animation:card-enter .35s ease-out both}
+.eyebrow{display:flex;align-items:center;gap:8px;color:#77879A;font:600 10px/1.2 var(--mono);letter-spacing:.12em;text-transform:uppercase}
+.eyebrow::before{content:"";width:17px;height:1px;background:#8296A6}
+.dashboard-intro h1{margin:9px 0 2px;font-size:27px;line-height:1.2;letter-spacing:-.045em;font-weight:650}
+.dashboard-intro p{margin:0;color:var(--muted);font-size:13px}
+.intro-meta{display:flex;align-items:center;gap:8px;padding-bottom:3px;color:#8190A0;font-size:12px}
+.intro-meta::before{content:"";width:6px;height:6px;border-radius:50%;background:#35A780;box-shadow:0 0 0 3px rgba(53,167,128,.12)}
+.intro-meta.polling::before{background:#D6A841;box-shadow:0 0 0 3px rgba(214,168,65,.12)}
+.intro-meta.offline::before{background:#D9656F;box-shadow:0 0 0 3px rgba(217,101,111,.12)}
+.intro-meta.connecting::before{background:#8293A5;box-shadow:0 0 0 3px rgba(130,147,165,.12)}
+.tally{display:grid;grid-template-columns:repeat(4,1fr);margin:0 34px;background:var(--panel);border:1px solid var(--rule);border-radius:10px;box-shadow:var(--shadow-sm);overflow:hidden}
+.tally button{all:unset;box-sizing:border-box;cursor:pointer;padding:15px 20px;display:flex;align-items:center;gap:12px;position:relative;transition:background .18s ease}
+.tally button:last-child{border-right:0}
+.tally button+button{border-left:1px solid #EDF0F3}
+.tally button:hover{background:#F8FAFB}
+.tally button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.tally button[aria-pressed="true"]{background:#F5F8FA;box-shadow:inset 0 -2px 0 var(--c)}
+.tally .n{font-size:27px;font-weight:650;line-height:1;color:var(--c);font-variant-numeric:tabular-nums;letter-spacing:-.045em}
+.tally .l{color:#718096;font-size:12px;font-weight:550}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 370px;align-items:start;gap:0;margin-top:19px}
+.left{padding:0 28px 42px 34px;min-width:0}
+.right{position:sticky;top:68px;height:calc(100vh - 68px);min-height:480px;background:var(--raw);color:var(--raw-text);display:flex;flex-direction:column;border-left:1px solid #263448;overflow:hidden}
+.section-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 10px}
+.section-head h2{margin:0;font-size:15px;letter-spacing:-.02em;font-weight:650}
+.section-head span{color:#8391A0;font-size:11px}
+.filters{display:grid;grid-template-columns:minmax(150px,1.2fr) repeat(2,minmax(130px,1fr)) auto;gap:10px;align-items:end;padding:12px;background:rgba(255,255,255,.82);border:1px solid var(--rule);border-radius:9px;box-shadow:var(--shadow-sm)}
+.filters label{display:flex;flex-direction:column;gap:5px;color:#718096;font-size:11px;font-weight:600;letter-spacing:.015em}
+.filters input,.filters select{padding:8px 11px;border:1px solid #DDE3E9;border-radius:6px;background:#fff;color:var(--ink);min-width:0;width:100%;font-size:12px;transition:border-color .18s,box-shadow .18s}
+.filters input:focus,.filters select:focus{border-color:#80A7C1;box-shadow:0 0 0 3px rgba(71,126,163,.1);outline:none}
+.filters input::placeholder{color:#A6B1BC}
+.filters #clear{white-space:nowrap}
+
+.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:12px;margin-top:13px}
+.card{grid-column:span 4;background:var(--panel);border:1px solid #E3E8ED;border-left:3px solid var(--c);border-radius:8px;padding:16px;cursor:pointer;display:flex;flex-direction:column;gap:9px;box-shadow:var(--shadow-sm);transition:transform .2s ease,box-shadow .2s ease,border-color .2s ease;animation:card-enter .36s both}
+.card:hover{transform:translateY(-3px);box-shadow:var(--shadow-md);border-top-color:#D5DEE7;border-right-color:#D5DEE7;border-bottom-color:#D5DEE7}
+.card:nth-child(2){animation-delay:35ms}.card:nth-child(3){animation-delay:70ms}.card:nth-child(4){animation-delay:105ms}
+.card.critical{grid-column:span 12;padding:20px 22px;gap:10px}
+.card.high{grid-column:span 6}
+.card.low{grid-column:span 3;padding:13px}
+.card h3{margin:0;font-size:16px;line-height:1.35;letter-spacing:-.02em;font-weight:650}
+.card.critical h3{font-size:21px}
+.card.low h3{font-size:14px}
+.meta1{display:flex;gap:10px;align-items:baseline;color:#8290A0;font-size:11px}
+.sevword{color:var(--c);font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.065em}
+.sum{margin:0;color:#566579;font-size:12px;display:-webkit-box;line-clamp:2;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.card.critical .sum{font-size:13px;line-clamp:3;-webkit-line-clamp:3;max-width:78ch}
+.card.low .sum{display:none}
+.sum.pending{color:var(--muted);font-style:italic}
+.meta2{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:1px}
+.meta2 code{background:#F2F5F7;padding:3px 7px;border-radius:4px;color:#41566B;font-size:10px}
+.chip{font-size:10px;padding:3px 7px;border-radius:4px;background:#EFF3F6;color:#516579;font-weight:550}
+.chip.mitre{background:transparent;border:1px solid #E0E6EC;color:#7E8D9A;font-family:var(--mono);font-size:9px}
+.chip.incident-id{background:#F7F8FA;border:1px solid #E4E8EC;color:#8591A0;font:9px var(--mono);letter-spacing:.01em}
+.ip-check{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:600}
+.ip-check::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.ip-check.verified{color:#277A62}
+.ip-check.checking{color:#A47D26}
+.ip-check.mismatch,.ip-check.invalid{color:#C74E56}
+.ip-check.unverified,.ip-check.partial{color:#78889A}
+.card.fresh{animation:card-enter .36s both,new-alert 2.6s ease-out}
+@keyframes card-enter{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}
+@keyframes new-alert{0%,45%{box-shadow:0 0 0 3px rgba(214,71,80,.17),var(--shadow-sm)}100%{box-shadow:var(--shadow-sm)}}
+.empty{grid-column:1/-1;padding:48px 24px;text-align:center;background:var(--panel);border:1px dashed #D5DEE6;border-radius:9px;animation:card-enter .28s both}
+.empty h3{margin:0 0 6px;font-size:20px}
+.empty p{margin:0 0 16px;color:var(--muted)}
+.identity-panel{margin-top:20px;padding:18px;background:#fff;border:1px solid var(--rule);border-radius:9px;box-shadow:var(--shadow-sm)}
+.identity-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:15px}
+.identity-head h2{margin:0;font-size:15px;letter-spacing:-.02em}
+.identity-head p{margin:3px 0 0;color:var(--muted);font-size:11px}
+.identity-total{flex:none;color:#758698;font:10px var(--mono)}
+.identity-chart{display:grid;gap:11px;max-height:320px;overflow:auto;padding:14px;background:#F8FAFB;border:1px solid #EDF1F4;border-radius:7px}
+.identity-bar-row{display:grid;grid-template-columns:minmax(90px,135px) minmax(60px,1fr) 72px;gap:10px;align-items:center}
+.identity-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#405267;font:11px var(--mono)}
+.identity-track{height:7px;border-radius:6px;background:#E7EDF1;overflow:hidden}
+.identity-bar{display:block;height:100%;min-width:3px;border-radius:inherit;background:linear-gradient(90deg,#438E83,#6BAF9D);transform-origin:left;animation:bar-enter .45s ease-out both}
+.identity-bar-multi{background:linear-gradient(90deg,#C3434C,#E47A77)}
+@keyframes bar-enter{from{transform:scaleX(.15);opacity:.6}to{transform:scaleX(1);opacity:1}}
+.identity-ip-count{color:#277A62;text-align:right;font-size:10px;font-variant-numeric:tabular-nums}
+.identity-multi{color:#C3434C;font-weight:650}
+.identity-ip-list code{border:1px solid #B8D9CB;background:#EDF7F2;color:#277A62}
+.identity-ip-list code.identity-ip-multi{border-color:#E8BEC1;background:#FFF0F0;color:#B33D46}
+.identity-table{width:100%;margin-top:12px;border-collapse:collapse}
+.identity-table th{text-align:left;padding:9px 8px;border-bottom:1px solid #E8EDF1;color:#8794A2;font-size:9px;font-weight:650;letter-spacing:.07em;text-transform:uppercase}
+.identity-table td{padding:10px 8px;border-bottom:1px solid #F0F3F5;color:#526477;font-size:11px;vertical-align:middle}
+.identity-table tr:last-child td{border-bottom:0}
+.identity-user{padding:0;border:0;background:none;color:#315F7B;font:600 11px var(--mono);cursor:pointer}
+.identity-user:hover{text-decoration:underline;color:#234A62}
+.identity-ip-list{display:flex;flex-wrap:wrap;gap:4px}
+.identity-ip-list code{padding:2px 5px;border-radius:4px;background:#F1F4F6;color:#506478;font-size:9px}
+.identity-state{color:#78889A;font-size:10px}
+.identity-empty{padding:15px;border:1px dashed #DCE4EA;border-radius:7px;color:#718195;font-size:11px;line-height:1.6}
+.identity-detail{width:min(680px,94vw);max-height:82vh;overflow:auto}
+.identity-detail header{padding:20px 22px 15px;border-bottom:1px solid var(--rule)}
+.identity-detail header h2{margin:4px 0 0;font:600 18px var(--mono)}
+.identity-detail header p{margin:5px 0 0;color:var(--muted);font-size:11px}
+.identity-event{padding:13px 22px;border-bottom:1px solid #EDF1F4}
+.identity-event:last-child{border-bottom:0}
+.identity-event-top{display:flex;justify-content:space-between;gap:12px;color:#405267;font-size:11px}
+.identity-event code{color:#375E77}
+.identity-event code.identity-ip-single{padding:2px 5px;border:1px solid #B8D9CB;border-radius:4px;background:#EDF7F2;color:#277A62}
+.identity-event code.identity-ip-multi{padding:2px 5px;border:1px solid #E8BEC1;border-radius:4px;background:#FFF0F0;color:#B33D46}
+.identity-event-meta{margin-top:4px;color:#7B8998;font-size:10px}
+.identity-event-raw{margin-top:7px;padding:8px 10px;border-radius:5px;background:#142131;color:#D7E0EA;font:10px/1.6 var(--mono);white-space:pre-wrap;word-break:break-word}
+.identity-dialog-close{float:right}
+
+/* live feed (raw data) */
+.fh{display:flex;justify-content:space-between;align-items:center;padding:19px 17px 6px}
+.fh b{font-size:14px;color:#F3F6FA;display:block;letter-spacing:-.01em}
+.fh span{color:#8796A9;font-size:11px}
+.ghost{background:transparent;border:1px solid #33445A;color:#C6D1DE;padding:5px 10px;border-radius:5px;cursor:pointer;font-size:11px}
+.ghost:hover{border-color:#61768D;background:rgba(255,255,255,.04)}
+#spark{width:calc(100% - 34px);height:45px;margin:8px 17px 5px;color:#4CC49A;overflow:visible}
+#spark polyline{filter:drop-shadow(0 0 4px rgba(76,196,154,.32));stroke-dasharray:700;stroke-dashoffset:700;animation:sparkline-in 1.2s ease-out forwards}
+@keyframes sparkline-in{to{stroke-dashoffset:0}}
+.hint{margin:0 17px 13px;color:#8493A6;font-size:10px;line-height:1.55}
+.feed{flex:1;overflow:auto;border-top:1px solid #263448;padding:6px 0;scrollbar-color:#34455B transparent;scrollbar-width:thin}
+.feed-empty{padding:18px 16px;color:var(--raw-muted);font-size:12px}
+.row{display:grid;grid-template-columns:53px 94px minmax(0,1fr) 30px;gap:6px;padding:6px 12px 6px 13px;font:10px/1.5 var(--mono);cursor:pointer;border-left:2px solid transparent;animation:event-enter .22s ease-out}
+@keyframes event-enter{from{opacity:0;transform:translateX(5px)}to{opacity:1;transform:translateX(0)}}
+.row:hover{background:var(--raw-2)}
+.row.flag{background:rgba(192,63,76,.095);border-left-color:#E16A73}
+.row .t{color:#8190A3}
+.row .req{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .tag{color:#F08A92;margin-left:5px}
+.s2{color:#66C69B}.s3{color:#96A5B6}.s4{color:#E4B95D}.s5{color:#EF8189}
+
+/* detail drawer */
+.scrim{position:fixed;inset:0;background:rgba(10,20,31,.52);backdrop-filter:blur(2px);opacity:0;pointer-events:none;transition:opacity .24s;z-index:10}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(760px,100vw);background:#F5F7F9;transform:translateX(100%);transition:transform .28s cubic-bezier(.2,.75,.25,1);overflow:auto;z-index:20;visibility:hidden;box-shadow:-16px 0 42px rgba(12,23,36,.15)}
+body.has-drawer .scrim{opacity:1;pointer-events:auto}
+body.has-drawer .drawer{transform:none;visibility:visible}
+.dh{padding:25px 30px 22px;background:#fff;border-bottom:3px solid var(--c);box-shadow:0 2px 8px rgba(22,38,55,.035)}
+.dh h2{margin:8px 0 12px;font-size:25px;line-height:1.2;letter-spacing:-.035em}
+.dh .row2{display:flex;flex-wrap:wrap;gap:10px;align-items:center;color:var(--muted);font-size:12px}
+.close{float:right;background:#fff;border:1px solid var(--rule);border-radius:6px;padding:6px 11px;cursor:pointer;font-size:12px}
+.close:hover{background:#F3F6F8;border-color:#CFD8E0}
+.db{padding:5px 30px 40px}
+.db section{margin-top:24px;animation:card-enter .28s both}
+.db section:nth-child(2){animation-delay:35ms}.db section:nth-child(3){animation-delay:70ms}.db section:nth-child(4){animation-delay:105ms}
+.db h4{margin:0 0 9px;font-size:13px;letter-spacing:-.005em}
+.db p{margin:0;max-width:68ch}
+.note{color:var(--muted);font-size:11px;margin-top:6px!important}
+.reason{background:#fff;border:1px solid var(--rule);border-radius:7px;padding:12px 14px;color:#46576A;font-size:12px}
+.checks{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.checks label{display:flex;gap:10px;align-items:flex-start;background:#fff;border:1px solid var(--rule);border-radius:7px;padding:10px 12px;cursor:pointer;font-size:12px;transition:border-color .15s,background .15s}
+.checks label:hover{border-color:#C8D5DF;background:#FBFCFD}
+.checks input{margin-top:4px}
+.checks input:checked+span{text-decoration:line-through;color:var(--muted)}
+.tl{list-style:none;margin:0;padding:0 0 0 18px;border-left:1px solid #D6DEE6}
+.tl li{position:relative;padding:0 0 16px 16px}
+.tl li::before{content:"";position:absolute;left:-24px;top:5px;width:8px;height:8px;border-radius:50%;background:var(--c);border:2px solid #F5F7F9;box-shadow:0 0 0 1px var(--c)}
+.tl .when{font-family:var(--mono);font-size:10px;color:var(--muted)}
+.tl .stage{font-weight:650;font-size:12px}
+.tech{display:grid;gap:8px}
+.tech a{color:#356E93;font-weight:600;text-decoration:none;font-size:12px}
+.tech a:hover{text-decoration:underline}
+.tech div{background:#fff;border:1px solid var(--rule);border-radius:7px;padding:10px 12px}
+.tech small{display:block;color:var(--muted);font-size:11px;margin-top:3px}
+.logs{background:#121D2B;color:#D1DBE7;border:1px solid #223249;border-radius:7px;padding:11px 0;max-height:320px;overflow:auto}
+.logs div{font:10px/1.7 var(--mono);padding:2px 13px;white-space:pre-wrap;word-break:break-all}
+.logs mark{background:#5B1F2B;color:#FFB3BB;border-radius:2px;padding:0 2px}
+.cmd{display:flex;gap:8px;align-items:center;background:#152232;color:var(--raw-text);border:1px solid #26384D;border-radius:7px;padding:8px 12px;margin-bottom:8px}
+.cmd code{flex:1;overflow:auto;white-space:nowrap}
+.cmd button{background:transparent;border:1px solid #3A4C61;color:var(--raw-text);border-radius:5px;padding:4px 10px;cursor:pointer;font-size:11px}
+.cmd button:hover{background:#23354A}
+.statusrow{display:flex;gap:10px;align-items:center}
+.incident-status{display:inline-flex;align-items:center;padding:3px 8px;border:1px solid #DEE5EB;border-radius:5px;background:#F7F9FA;color:#6B7C8E;font-size:10px;font-weight:600}
+.status-contained{background:#EDF6F2;border-color:#D5E9E0;color:#33826A}
+.request-error{color:#E59AA0;font-size:11px;padding:12px 16px}
+dialog{border:1px solid #E4E9EE;border-radius:11px;padding:0;width:min(520px,94vw);box-shadow:0 24px 70px rgba(8,18,29,.25);animation:dialog-enter .2s ease-out}
+dialog::backdrop{background:rgba(10,20,31,.48);backdrop-filter:blur(3px)}
+@keyframes dialog-enter{from{opacity:0;transform:translateY(8px) scale(.99)}to{opacity:1;transform:translateY(0) scale(1)}}
+dialog form{padding:25px;display:grid;gap:14px}
+dialog h2{margin:0;font-size:20px;letter-spacing:-.025em}
+.drop{display:flex;align-items:center;justify-content:center;text-align:center;min-height:120px;border:1px dashed #C9D5DF;border-radius:8px;padding:16px;cursor:pointer;color:var(--muted);background:#FAFBFC;transition:border-color .18s,background .18s}
+.drop:hover,.drop.over{border-color:var(--accent);background:#F1F6F9}
+.drop input{position:absolute;opacity:0;width:1px;height:1px}
+dialog label.f{display:flex;flex-direction:column;gap:5px;color:var(--muted);font-size:11px;font-weight:600}
+dialog select{padding:9px 10px;border:1px solid var(--rule);border-radius:6px;background:#fff;font-size:12px}
+.bar{height:4px;background:#E8EDF1;border-radius:4px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:#48A28F;transition:width .18s}
+#uplMsg{margin:0;min-height:22px;color:var(--muted);font-size:12px}
+#uplMsg.err{color:var(--crit)}
+.actions{display:flex;justify-content:flex-end;gap:10px}
+#toasts{position:fixed;left:20px;bottom:20px;display:grid;gap:8px;z-index:40}
+.toast{background:#142131;color:#fff;border-left:3px solid var(--c,#3DDC97);border-radius:7px;padding:12px 16px;max-width:360px;cursor:pointer;box-shadow:0 10px 28px rgba(0,0,0,.22);animation:toast-enter .25s ease-out}
+.toast b{display:block}
+@keyframes toast-enter{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+
+@media (max-width:1300px){.layout{grid-template-columns:minmax(0,1fr) 330px}.card:not(.critical){grid-column:span 6}.card.low{grid-column:span 6}}
+@media (max-width:1000px){.top{padding-inline:22px}.dashboard-intro{padding-inline:22px}.tally{margin-inline:22px}.layout{grid-template-columns:1fr}.left{padding:0 22px 30px}.right{position:static;height:480px;min-height:0;border-left:0;border-top:1px solid #263448}.card:not(.critical){grid-column:span 6}}
+@media (max-width:620px){.top{padding:11px 15px;gap:9px;min-height:60px}.brand{font-size:14px;gap:8px}.brand svg{width:27px;height:27px}.tot{display:none}.conn{padding:6px 8px;font-size:10px}.top .btn{padding:8px 10px;font-size:11px}.dashboard-intro{align-items:flex-start;padding:24px 16px 18px}.dashboard-intro h1{font-size:23px}.intro-meta{display:none}.tally{grid-template-columns:repeat(2,1fr);margin-inline:16px}.tally button{padding:13px 15px}.tally button:nth-child(3){border-left:0;border-top:1px solid #EDF0F3}.tally button:nth-child(4){border-top:1px solid #EDF0F3}.left{padding:0 16px 24px}.filters{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:10px}.filters label{min-width:0}.filters #clear{justify-self:start}.card,.card.critical,.card.high,.card.low{grid-column:span 12;padding:15px}.card.critical h3{font-size:19px}.row{grid-template-columns:46px 83px minmax(0,1fr) 26px;gap:5px;padding-inline:9px;font-size:9px}.drawer{width:100vw}.dh,.db{padding-left:19px;padding-right:19px}.dh h2{font-size:22px}#toasts{left:12px;right:12px;bottom:12px}.toast{max-width:none}}
+@media (max-width:620px){.identity-panel{padding:13px}.identity-head{gap:8px}.identity-chart{padding:10px;gap:9px}.identity-bar-row{grid-template-columns:86px minmax(40px,1fr) 62px;gap:7px}.identity-name{font-size:9px}.identity-table th,.identity-table td{padding:8px 4px}.identity-table th{font-size:8px}.identity-table td{font-size:10px}.identity-ip-list code{font-size:8px}}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 2.5 4.5 5.5v6c0 4.6 3.1 8.2 7.5 10 4.4-1.8 7.5-5.4 7.5-10v-6L12 2.5Z" stroke="#3DDC97" stroke-width="1.8" stroke-linejoin="round"/><path d="M8.5 12.2l2.4 2.4 4.6-5" stroke="#3DDC97" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    Log Sentinel
+  </div>
+  <span class="sp"></span>
+  <span id="total" class="tot"></span>
+  <button id="conn" class="conn" type="button"><span class="dot"></span><span id="connText">Connecting</span></button>
+  <button id="openUpload" class="btn primary" type="button">Upload logs</button>
+</header>
+
+<section class="dashboard-intro" aria-labelledby="pageTitle">
+  <div>
+    <div class="eyebrow">Log Sentinel / Operations</div>
+    <h1 id="pageTitle">Security overview</h1>
+    <p>Prioritized detections and activity across your monitored services.</p>
+  </div>
+  <div class="intro-meta connecting" id="overviewStatus">Connecting to API</div>
+</section>
+
+<nav class="tally" aria-label="Filter incidents by severity">
+  <button type="button" data-sev="critical" aria-pressed="false" style="--c:var(--crit)"><span class="n">0</span><span class="l">Critical</span></button>
+  <button type="button" data-sev="high" aria-pressed="false" style="--c:var(--high)"><span class="n">0</span><span class="l">High</span></button>
+  <button type="button" data-sev="medium" aria-pressed="false" style="--c:var(--med)"><span class="n">0</span><span class="l">Medium</span></button>
+  <button type="button" data-sev="low" aria-pressed="false" style="--c:var(--low)"><span class="n">0</span><span class="l">Low</span></button>
+</nav>
+
+<div class="layout">
+  <main class="left">
+    <div class="section-head">
+      <h2>Incident queue</h2>
+      <span>Ranked by severity and recency</span>
+    </div>
+    <div class="filters">
+      <label>IP address<input id="fIp" type="search" placeholder="Start typing an IP" autocomplete="off"></label>
+      <label>Attack type<select id="fType"><option value="">All types</option></select></label>
+      <label>Time<select id="fRange">
+        <option value="15m">Last 15 minutes</option>
+        <option value="1h">Last hour</option>
+        <option value="24h" selected>Last 24 hours</option>
+        <option value="all">All time</option>
+      </select></label>
+      <button id="clear" class="btn" type="button">Clear filters</button>
+    </div>
+    <section id="grid" class="grid" aria-live="polite"></section>
+    <section class="identity-panel" aria-labelledby="identityTitle">
+      <div class="identity-head">
+        <div>
+          <h2 id="identityTitle">Login activity by account</h2>
+          <p>Every account identified in loaded incident-linked login evidence, with its observed source IPs.</p>
+        </div>
+        <span id="identityTotal" class="identity-total">0 identities</span>
+      </div>
+      <div id="identityChart" class="identity-chart" role="img" aria-label="Graph of observed sign-in IPs by account"></div>
+      <div id="identityTable"></div>
+      <p class="note">Green means one syntactically valid IP was observed; red means multiple IPs were observed. This is not a trusted-IP check or proof of unauthorized access. The API currently provides login events only when linked to incidents.</p>
+    </section>
+  </main>
+
+  <aside class="right" aria-label="Detection evidence">
+    <div class="fh">
+      <div><b>Detection evidence</b><span id="rate">0 linked events</span></div>
+      <button id="pause" class="ghost" type="button">Pause</button>
+    </div>
+    <svg id="spark" viewBox="0 0 300 40" preserveAspectRatio="none" aria-hidden="true"></svg>
+    <p class="hint">Recent log events attached to detected incidents. Select an event to filter the incident queue by source IP.</p>
+    <div id="feed" class="feed"></div>
+  </aside>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<div class="drawer" id="drawer" role="dialog" aria-modal="true" aria-label="Incident details"></div>
+<dialog id="identityDialog" class="identity-detail" aria-labelledby="identityDialogTitle">
+  <button class="close identity-dialog-close" type="button" data-identity-close>Close</button>
+  <div id="identityDetail"></div>
+</dialog>
+
+<dialog id="upl">
+  <form id="uplForm">
+    <h2>Upload a log file</h2>
+    <label class="drop" id="drop"><input type="file" id="file" accept=".log,.txt,.csv,.json,.jsonl"><span id="dropText">Drop a file here, or click to choose one</span></label>
+    <label class="f">Log format
+      <select id="src">
+        <option value="auto">Detect format automatically</option>
+        <option value="nginx">Nginx access log</option>
+        <option value="apache">Apache access log</option>
+        <option value="auth">Login log (SSH auth.log)</option>
+      </select>
+    </label>
+    <div class="bar"><i id="prog"></i></div>
+    <p id="uplMsg" role="status"></p>
+    <div class="actions">
+      <button type="button" class="btn" id="uplClose">Close</button>
+      <button type="submit" class="btn primary" id="uplGo">Analyse file</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toasts" aria-live="polite"></div>
+
+<script>
+(() => {
+'use strict';
+
+/* ================= CONFIG: match this to the API your teammates build ================= */
+const CONFIG = {
+  API_BASE: (() => {
+    try { return new URLSearchParams(location.search).get('api') || localStorage.getItem('ls_api') || 'http://localhost:8000'; }
+    catch { return 'http://localhost:8000'; }
+  })().replace(/\/+$/, ''),
+  PATHS: {
+    incidents: '/api/incidents?limit=100',
+    event:     id => '/api/events/' + encodeURIComponent(id),
+    upload:    '/api/logs/upload'
+  },
+  POLL_MS: 5000
+};
+/* ======================================================================================= */
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const SEV = ['critical','high','medium','low'];
+const SEVVAR = {critical:'--crit', high:'--high', medium:'--med', low:'--low'};
+const hum = s => { s = String(s).replace(/_/g,' ').toLowerCase(); s = s.charAt(0).toUpperCase()+s.slice(1);
+  return s.replace(/\bsql\b/i,'SQL').replace(/\bxss\b/i,'XSS').replace(/\bssh\b/i,'SSH').replace(/\bip\b/i,'IP'); };
+const fmtT = t => { const d = new Date(t); return isNaN(d) ? String(t ?? '') : d.toLocaleTimeString([], {hour12:false}); };
+const ago = ts => { const s = (Date.now()-Date.parse(ts))/1000; if (isNaN(s)) return '';
+  if (s<60) return Math.max(0,Math.round(s))+'s ago'; if (s<3600) return Math.round(s/60)+'m ago';
+  if (s<86400) return Math.round(s/3600)+'h ago'; return Math.round(s/86400)+'d ago'; };
+
+const state = {
+  incidents:new Map(), conn:'connecting', ready:false, paused:false,
+  apiAvailable:null, incidentsAvailable:null,
+  filters:{ip:'', type:'', sev:'', range:'24h'},
+  eventTimes:[], seen:new Set(), total:0, selected:null, fresh:new Set(), lastSig:'',
+  events:new Map(), pendingEvents:new Set(), eventFailures:new Map()
+};
+const timers = {};
+
+/* ---------- normalising (accepts a few likely field names from the API) ---------- */
+function normInc(r){
+  const finding = r.finding || r;
+  const sev = String(finding.severity || r.severity || 'low').toLowerCase();
+  const rawMitre = finding.mitre_techniques || r.mitre || [];
+  const mitre = (Array.isArray(rawMitre) ? rawMitre : [rawMitre]).filter(Boolean).map(m => typeof m === 'string'
+    ? {id:m, name:'', why:''}
+    : {id:m.id || m.technique_id || m.technique || '', name:m.name || '', why:m.why || m.description || ''});
+  const type = finding.type || r.type || r.attack_type;
+  const rawTypes = finding.attack_types || r.attack_types || r.types || (type ? [type] : []);
+  const rawTimeline = Array.isArray(r.timeline) ? r.timeline : [];
+  const rawEvidence = r.evidence || r.logs || r.raw_logs || [];
+  const rawActions = finding.recommended_actions || r.immediate_actions || r.recommended_actions || [];
+  const first = finding.first_seen || r.first_seen || r.start || r.ts || r.timestamp;
+  const last = finding.last_seen || r.last_seen || r.end || r.ts || r.timestamp || first;
+  const eventCount = Number(finding.event_count || r.event_count || 0);
+  const linkedEventCount = Array.isArray(r.evidence_event_ids) ? r.evidence_event_ids.length : 0;
+  const timeline = rawTimeline.map(t => typeof t === 'string'
+    ? {time:'', stage:'', event:t}
+    : {time:t.time || t.timestamp || t.ts, stage:t.stage || t.phase || '', event:t.event || t.description || t.message || ''});
+  if (!timeline.length && first) {
+    const observedCount = eventCount || linkedEventCount;
+    timeline.push({time:first, stage:'Detection window', event:observedCount
+      ? `${observedCount} supporting event${observedCount === 1 ? '' : 's'} matched ${type ? hum(type) : 'the detection rule'}`
+      : `The detection rule matched ${type ? hum(type) : 'this activity'}`});
+    if (last && Date.parse(last) !== Date.parse(first)) timeline.push({time:last, stage:'Last observed', event:'Most recent event associated with this finding'});
+  }
+  return {
+    id: r.incident_id || r.id || r._id, ip: finding.source_ip || r.ip || r.source_ip || r.src_ip || 'unknown',
+    assetId: r.asset_id || '',
+    severity: SEV.includes(sev) ? sev : 'low', status: r.status || 'open',
+    title: finding.title || r.title || r.name || (type ? hum(type) : 'Incident'), country: r.country || '',
+    types: (Array.isArray(rawTypes) ? rawTypes : [rawTypes]).filter(Boolean),
+    first, last,
+    summary: finding.gemini_summary || finding.summary || r.summary || '', reason: finding.detection_reason || finding.reason || finding.metadata?.detection_reason || finding.metadata?.reason || '',
+    confidence: finding.confidence || r.confidence || '', mitre, eventCount,
+    detector: finding.detector || '', ruleId: finding.rule_id || '',
+    timeline, eventIds: Array.isArray(r.evidence_event_ids) ? r.evidence_event_ids : [],
+    evidence: Array.isArray(rawEvidence) ? rawEvidence : [rawEvidence],
+    actions: Array.isArray(rawActions) ? rawActions : [rawActions], fixes: r.longer_term_fixes || []
+  };
+}
+function normEvent(r){
+  const ts = r.ts || r.time || r.timestamp || new Date().toISOString();
+  return { key: r.id || r._id || r.key || (ts + '|' + r.ip + '|' + r.path), ts, ip: r.ip || r.src_ip || '?',
+    method: r.method || '', path: r.path || r.url || '', status: Number(r.status || r.status_code || 0),
+    user: String(r.user || r.username || r.account || '').trim(),
+    userAgent: r.user_agent || r.userAgent || r.useragent || r.http_user_agent || '',
+    source: r.source || r.service || r.application || '',
+    assetId: r.asset_id || '',
+    message: r.message || r.msg || r.event || '',
+    raw: r.raw || r.message || '', rule: r.rule || r.attack_type || '', flagged: !!(r.flagged || r.suspicious || r.rule || r.attack_type || r.detection_reason) };
+}
+function normalizeIp(value){
+  const ip = String(value ?? '').trim().replace(/^\[|\]$/g,'');
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(ip)) {
+    const octets = ip.split('.').map(Number);
+    return octets.every(octet => octet >= 0 && octet <= 255) ? octets.join('.') : '';
+  }
+  if (!ip.includes(':')) return '';
+  try { return new URL(`http://[${ip}]/`).hostname.slice(1,-1).toLowerCase(); }
+  catch { return ''; }
+}
+
+/* ---------- API ---------- */
+async function api(path, opts = {}){
+  const c = new AbortController(); const t = setTimeout(() => c.abort(), 6000);
+  try {
+    const r = await fetch(CONFIG.API_BASE + path, {...opts, signal:c.signal});
+    if (!r.ok) {
+      let detail = '';
+      try { const body = await r.json(); detail = body.detail || body.message || ''; } catch {}
+      throw new Error(detail || `HTTP ${r.status} for ${path}`);
+    }
+    return await r.json();
+  } finally { clearTimeout(t); }
+}
+
+/* ---------- connection pill ---------- */
+function setConn(mode){
+  state.conn = mode;
+  const label = {polling:'Polling every 5s', offline:'API offline', connecting:'Connecting'}[mode];
+  const overview = $('#overviewStatus');
+  overview.className = 'intro-meta ' + mode;
+  overview.textContent = {polling:'Connected - polling', offline:'Waiting for API', connecting:'Connecting to API'}[mode];
+  $('#conn').className = 'conn ' + mode;
+  $('#connText').textContent = label;
+  $('#conn').title = 'API: ' + CONFIG.API_BASE + ' (select to change)';
+}
+
+/* ---------- filtering and counters ---------- */
+function visible(i, ignoreSev){
+  const f = state.filters;
+  if (f.ip && !i.ip.includes(f.ip.trim())) return false;
+  if (f.type && !i.types.includes(f.type)) return false;
+  if (f.range !== 'all') {
+    const ms = {'15m':9e5, '1h':36e5, '24h':864e5}[f.range];
+    if (Date.now() - Date.parse(i.last) > ms) return false;
+  }
+  if (!ignoreSev && f.sev && i.severity !== f.sev) return false;
+  return true;
+}
+function renderTally(){
+  const counts = {critical:0, high:0, medium:0, low:0};
+  state.incidents.forEach(i => { if (visible(i, true)) counts[i.severity]++; });
+  document.querySelectorAll('.tally button').forEach(b => {
+    b.querySelector('.n').textContent = counts[b.dataset.sev];
+    b.setAttribute('aria-pressed', String(state.filters.sev === b.dataset.sev));
+  });
+}
+function fillTypes(){
+  const sel = $('#fType'), cur = state.filters.type;
+  const types = new Map([
+    ['brute_force', hum('brute_force')],
+    ['sql_injection', hum('sql_injection')],
+    ['http_flood', hum('http_flood')],
+    ['reconnaissance', hum('reconnaissance')]
+  ]);
+  state.incidents.forEach(i => i.types.forEach(type => {
+    if (!types.has(type)) types.set(type, hum(type));
+  }));
+  sel.innerHTML = '<option value="">All types</option>' + [...types]
+    .sort((a,b) => a[1].localeCompare(b[1]))
+    .map(([value,label]) => `<option value="${esc(value)}">${esc(label)}</option>`).join('');
+  sel.value = types.has(cur) ? cur : '';
+}
+function cardHtml(i){
+  const fresh = state.fresh.has(i.id) ? ' fresh' : '';
+  const verification = ipVerification(i);
+  const shortId = String(i.id).length > 8 ? String(i.id).slice(-8).toUpperCase() : String(i.id).toUpperCase();
+  return `<article class="card ${i.severity}${fresh}" style="--c:var(${SEVVAR[i.severity]})" data-id="${esc(i.id)}" role="button" tabindex="0" aria-label="Open incident: ${esc(i.title)}">
+    <div class="meta1"><span class="sevword">${hum(i.severity)}</span><span>${esc(hum(i.status))}</span><span>${esc(ago(i.last))}</span></div>
+    <h3>${esc(i.title)}</h3>
+    ${i.summary ? `<p class="sum">${esc(i.summary)}</p>` : `<p class="sum pending">No detection summary provided.</p>`}
+    <div class="meta2"><code>${esc(i.ip)}</code><span class="ip-check ${verification.state}">${esc(verification.shortLabel)}</span><span class="chip incident-id" title="${esc(i.id)}">ID ${esc(shortId)}</span>${i.assetId ? `<span class="chip">${esc(i.assetId)}</span>` : ''}${i.types.map(t => `<span class="chip">${esc(hum(t))}</span>`).join('')}${i.eventCount ? `<span class="chip">${i.eventCount} events</span>` : ''}${i.mitre.map(m => `<span class="chip mitre">${esc(m.id)}</span>`).join('')}</div>
+  </article>`;
+}
+function renderIncidents(force){
+  const order = Object.fromEntries(SEV.map((s,n) => [s,n]));
+  const list = [...state.incidents.values()].filter(i => visible(i))
+    .sort((a,b) => order[a.severity]-order[b.severity] || Date.parse(b.last)-Date.parse(a.last));
+  const sig = JSON.stringify(list.map(i => [i.id,i.severity,i.status,i.last,!!i.summary])) + [...state.fresh].join();
+  if (!force && sig === state.lastSig) return;
+  state.lastSig = sig;
+  const el = $('#grid');
+  if (!list.length) {
+    el.innerHTML = state.incidents.size
+      ? `<div class="empty"><h3>No incidents match these filters</h3><p>Widen the time range or clear a filter.</p><button class="btn" data-act="clear">Clear filters</button></div>`
+      : state.conn === 'offline'
+        ? `<div class="empty"><h3>API unavailable</h3><p>Connect to the FastAPI service to load incidents and events from MongoDB.</p><button class="btn" data-act="connect">Configure API</button></div>`
+        : state.incidentsAvailable === false
+          ? `<div class="empty"><h3>Incident API unavailable</h3><p>The FastAPI service must expose GET /api/incidents to show detections stored in MongoDB.</p></div>`
+          : `<div class="empty"><h3>No incidents yet</h3><p>Upload a server or login log and detections will appear here.</p><button class="btn primary" data-act="upload">Upload logs</button></div>`;
+    return;
+  }
+  el.innerHTML = list.map(cardHtml).join('');
+}
+function renderAll(){ renderTally(); fillTypes(); renderIncidents(true); }
+
+/* ---------- incidents in/out ---------- */
+function upsert(raw, silent){
+  const n = normInc(raw); if (!n.id) return;
+  const isNew = !state.incidents.has(n.id);
+  const prev = state.incidents.get(n.id);
+  state.incidents.set(n.id, prev ? {...prev, ...n} : n);
+  if (isNew && !silent && state.ready) {
+    state.fresh.add(n.id); setTimeout(() => { state.fresh.delete(n.id); renderIncidents(true); }, 2800);
+    if (n.severity === 'critical' || n.severity === 'high') toast(n);
+  }
+  if (state.selected === n.id) renderDrawer();
+}
+function ipVerification(i){
+  const claimed = normalizeIp(i.ip);
+  if (!claimed) return {state:'invalid', label:'Invalid source IP', shortLabel:'Invalid IP'};
+  if (!i.eventIds.length) return {state:'unverified', label:'No linked event IDs to verify this IP', shortLabel:'Unverified'};
+  const linked = i.eventIds.map(id => state.events.get(String(id))).filter(Boolean);
+  const evidenceIps = linked.map(event => normalizeIp(event.ip)).filter(Boolean);
+  if (evidenceIps.some(ip => ip !== claimed)) return {state:'mismatch', label:'Source IP does not match linked event evidence', shortLabel:'IP mismatch'};
+  const complete = linked.length === i.eventIds.length;
+  if (complete && evidenceIps.length === linked.length) return {
+    state:'verified',
+    label:`Source IP matches all ${linked.length} linked event${linked.length === 1 ? '' : 's'}`,
+    shortLabel:'IP verified'
+  };
+  if (i.eventIds.some(id => state.pendingEvents.has(String(id)))) return {state:'checking', label:'Checking source IP against linked events', shortLabel:'Checking IP'};
+  if (linked.length || i.eventIds.some(id => state.eventFailures.has(String(id)))) return {
+    state:'partial',
+    label:'Only some linked events could be checked',
+    shortLabel:'Partially checked'
+  };
+  return {state:'checking', label:'Checking source IP against linked events', shortLabel:'Checking IP'};
+}
+function applyIncidents(d, silent){
+  const payload = d.data || d;
+  const arr = Array.isArray(payload) ? payload : (payload.incidents || payload.items || []);
+  arr.forEach(r => upsert(r, silent));
+  renderTally(); fillTypes(); renderIncidents();
+}
+
+/* ---------- live feed ---------- */
+function pushEvent(raw){
+  const e = normEvent(raw);
+  if (state.seen.has(e.key)) return;
+  state.seen.add(e.key); if (state.seen.size > 2000) state.seen.delete(state.seen.values().next().value);
+  state.events.set(String(e.key), e);
+  if (state.events.size > 2000) state.events.delete(state.events.keys().next().value);
+  state.total = state.seen.size;
+  const eventTime = Date.parse(e.ts);
+  if (!isNaN(eventTime)) state.eventTimes.push(eventTime);
+  updateTotal();
+  if (state.paused) return;
+  const feed = $('#feed');
+  feed.querySelector('.feed-empty')?.remove();
+  feed.prepend(eventRow(e));
+  while (feed.children.length > 150) feed.lastChild.remove();
+}
+function eventRow(e){
+  const row = document.createElement('div');
+  row.className = 'row' + (e.flagged ? ' flag' : ''); row.dataset.ip = e.ip;
+  const req = (e.method + ' ' + e.path).trim() || e.raw;
+  row.innerHTML = `<span class="t">${esc(fmtT(e.ts))}</span><span>${esc(e.ip)}</span><span class="req" title="${esc(req)}">${esc(req)}${e.rule ? `<span class="tag">${esc(hum(e.rule))}</span>` : ''}</span><span class="s${Math.floor(e.status/100)}">${e.status || ''}</span>`;
+  return row;
+}
+function renderFeed(){
+  const feed = $('#feed');
+  feed.innerHTML = '';
+  [...state.events.values()].sort((a,b) => Date.parse(b.ts)-Date.parse(a.ts)).slice(0,150)
+    .forEach(event => feed.append(eventRow(event)));
+}
+function loginEvent(event){
+  const context = `${event.source} ${event.path} ${event.message} ${event.raw}`;
+  return !!event.user && /auth|ssh|login|log-in|sign[\s_-]?in|session/i.test(context);
+}
+function loginResult(event){
+  const text = `${event.message} ${event.raw}`;
+  if (/failed|failure|invalid|denied|unauthori[sz]ed|authentication error/i.test(text) || event.status >= 400) return 'Failed';
+  if (/accepted|success(?:ful(?:ly)?)?|authenticated|logged in|session opened/i.test(text)) return 'Successful';
+  if (/^(auth|sshd?|ssh)$/i.test(event.source) && event.status >= 200 && event.status < 300) return 'Successful';
+  if (/login|sign[\s_-]?in|session/i.test(`${event.path} ${event.message}`) && event.status >= 200 && event.status < 300) return 'Successful';
+  return 'Observed';
+}
+function identityProfiles(){
+  const profiles = new Map();
+  state.events.forEach(event => {
+    if (!loginEvent(event) || !normalizeIp(event.ip)) return;
+    const key = event.user.toLocaleLowerCase();
+    let profile = profiles.get(key);
+    if (!profile) {
+      profile = {key, user:event.user, events:[], ips:new Set(), successes:0, failures:0};
+      profiles.set(key, profile);
+    }
+    profile.events.push(event);
+    profile.ips.add(normalizeIp(event.ip));
+    const result = loginResult(event);
+    if (result === 'Successful') profile.successes++;
+    if (result === 'Failed') profile.failures++;
+  });
+  return [...profiles.values()].map(profile => ({
+    ...profile,
+    events:profile.events.sort((a,b) => Date.parse(b.ts)-Date.parse(a.ts)),
+    ips:[...profile.ips].sort()
+  })).sort((a,b) => b.ips.length-a.ips.length || b.events.length-a.events.length || a.user.localeCompare(b.user));
+}
+function renderIdentityPanel(){
+  const profiles = identityProfiles();
+  const chart = $('#identityChart'), table = $('#identityTable');
+  $('#identityTotal').textContent = `${profiles.length} ${profiles.length === 1 ? 'identity' : 'identities'}`;
+  if (!profiles.length) {
+    chart.innerHTML = '<div class="identity-empty">No identifiable login activity in the incident-linked evidence yet. Upload auth logs or login events containing a username and source IP to populate this view.</div>';
+    table.innerHTML = '';
+    return;
+  }
+  const maxIps = Math.max(1, ...profiles.map(profile => profile.ips.length));
+  chart.innerHTML = profiles.map(profile => `<div class="identity-bar-row" title="${esc(profile.user)}: observed from ${profile.ips.length} source IP${profile.ips.length === 1 ? '' : 's'}">
+    <span class="identity-name">${esc(profile.user)}</span>
+    <span class="identity-track"><span class="identity-bar${profile.ips.length > 1 ? ' identity-bar-multi' : ''}" style="width:${Math.max(5, profile.ips.length / maxIps * 100)}%"></span></span>
+    <span class="identity-ip-count${profile.ips.length > 1 ? ' identity-multi' : ''}">${profile.ips.length > 1 ? 'Multiple IPs' : '1 valid IP'}</span>
+  </div>`).join('');
+  table.innerHTML = `<table class="identity-table">
+    <thead><tr><th>Account</th><th>Observed source IPs</th><th>Login events</th><th>Last seen</th></tr></thead>
+    <tbody>${profiles.map(profile => `<tr>
+      <td><button type="button" class="identity-user" data-identity="${esc(profile.key)}" title="View sign-in details for ${esc(profile.user)}">${esc(profile.user)}</button></td>
+      <td><span class="identity-ip-list">${profile.ips.map(ip => `<code class="${profile.ips.length > 1 ? 'identity-ip-multi' : ''}" title="${profile.ips.length > 1 ? 'Multiple IPs were observed for this account' : 'Valid IP format; only one IP observed in loaded evidence'}">${esc(ip)}</code>`).join('')}</span></td>
+      <td>${profile.events.length} <span class="${profile.ips.length > 1 ? 'identity-multi' : 'identity-ip-count'}">${profile.ips.length > 1 ? 'Multiple IPs' : 'Single IP'}</span></td>
+      <td>${esc(ago(profile.events[0].ts))}</td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+}
+function openIdentity(key){
+  const profile = identityProfiles().find(item => item.key === key);
+  if (!profile) return;
+  const detail = $('#identityDetail'), dialog = $('#identityDialog');
+  detail.innerHTML = `<header>
+    <div class="eyebrow">Observed account activity</div>
+    <h2 id="identityDialogTitle">${esc(profile.user)}</h2>
+    <p><span class="${profile.ips.length > 1 ? 'identity-multi' : 'identity-ip-count'}">${profile.ips.length > 1 ? 'Multiple IPs observed' : 'One valid IP observed'}</span> · ${profile.ips.length} source IP${profile.ips.length === 1 ? '' : 's'} across ${profile.events.length} login-related event${profile.events.length === 1 ? '' : 's'}.</p>
+  </header>
+  <div>${profile.events.map(event => `<article class="identity-event">
+    <div class="identity-event-top"><strong>${esc(loginResult(event))}</strong><code class="${profile.ips.length > 1 ? 'identity-ip-multi' : 'identity-ip-single'}">${esc(event.ip)}</code></div>
+    <div class="identity-event-meta">${esc(new Date(event.ts).toLocaleString())}${event.assetId ? ` · ${esc(event.assetId)}` : ''}${event.source ? ` · ${esc(event.source)}` : ''}${event.status ? ` · HTTP ${event.status}` : ''}</div>
+    ${event.path || event.method ? `<div class="identity-event-meta">${esc(`${event.method} ${event.path}`.trim())}</div>` : ''}
+    ${event.userAgent ? `<div class="identity-event-meta">Client: ${esc(event.userAgent)}</div>` : ''}
+    ${event.raw ? `<div class="identity-event-raw">${esc(event.raw)}</div>` : ''}
+  </article>`).join('')}</div>`;
+  dialog.showModal();
+}
+function updateTotal(){ $('#total').textContent = state.total.toLocaleString() + ' evidence events loaded'; }
+function renderSpark(){
+  const now = Date.now(), B = 60, W = 5000, b = new Array(B).fill(0);
+  state.eventTimes = state.eventTimes.filter(t => now - t < B*W);
+  state.eventTimes.forEach(t => { const i = B-1-Math.floor((now-t)/W); if (i >= 0) b[i]++; });
+  const max = Math.max(1, ...b);
+  $('#spark').innerHTML = `<polyline points="${b.map((v,i) => (i/(B-1)*300).toFixed(1)+','+(38-(v/max)*34).toFixed(1)).join(' ')}" fill="none" stroke="currentColor" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
+  $('#rate').textContent = state.total.toLocaleString() + ' evidence events';
+}
+
+/* ---------- detail drawer ---------- */
+const HL = /(union(?:\s|%20|\+)+select|or\s+1=1|sleep\(|\.\.\/|&lt;script|sqlmap|\/etc\/passwd|\.env|information_schema)/gi;
+async function fetchEvidence(ids, retryFailed){
+  const wanted = [...new Set(ids.map(String))].filter(id => id && !state.events.has(id) && !state.pendingEvents.has(id) && (retryFailed || !state.eventFailures.has(id))).slice(0, 40);
+  if (!wanted.length) return;
+  wanted.forEach(id => state.pendingEvents.add(id));
+  const results = await Promise.allSettled(wanted.map(id => api(CONFIG.PATHS.event(id))));
+  const failed = [];
+  results.forEach((result, index) => {
+    const id = wanted[index];
+    state.pendingEvents.delete(id);
+    if (result.status === 'fulfilled') {
+      const event = normEvent({...result.value, id:result.value.id || id});
+      state.events.set(id, event);
+      state.eventFailures.delete(id);
+    } else {
+      state.eventFailures.set(id, result.reason);
+      failed.push({id, error:result.reason});
+    }
+  });
+  [...state.events.values()].sort((a,b) => Date.parse(a.ts)-Date.parse(b.ts)).forEach(pushEvent);
+  if (failed.length) console.warn(`Could not load ${failed.length} supporting event(s).`, failed[0].error);
+  updateTotal();
+  renderIdentityPanel();
+  renderTally(); renderIncidents(true);
+}
+function loadIncidentEvidence(i){
+  if (i.eventIds.length) fetchEvidence(i.eventIds, true).then(() => {
+    if (state.selected === i.id) renderDrawer();
+  }).catch(err => console.error('Could not load supporting events:', err));
+}
+function openIncident(id){
+  state.selected = id; document.body.classList.add('has-drawer'); renderDrawer();
+  $('#drawer').querySelector('.close')?.focus();
+  const incident = state.incidents.get(id);
+  if (incident) loadIncidentEvidence(incident);
+}
+function closeDrawer(){ state.selected = null; document.body.classList.remove('has-drawer'); }
+function renderDrawer(){
+  const i = state.incidents.get(state.selected); const el = $('#drawer');
+  if (!i) { el.innerHTML = ''; return; }
+  const verification = ipVerification(i);
+  const safeIp = verification.state === 'verified';
+  const linkedEvents = i.eventIds.map(id => state.events.get(String(id))).filter(Boolean);
+  const evidence = linkedEvents.length ? linkedEvents : i.evidence;
+  const lines = evidence.map(e => typeof e === 'string' ? e : (e.raw || [e.timestamp || e.ts, e.ip, e.method, e.path, e.status].filter(Boolean).join(' ')));
+  const observedIps = [...new Set(linkedEvents.map(e => String(e.ip || '').trim()).filter(ip => normalizeIp(ip)))];
+  const verificationDetail = verification.state === 'verified'
+    ? `The reported source IP matches all ${linkedEvents.length} event${linkedEvents.length === 1 ? '' : 's'} linked to this incident.`
+    : verification.state === 'mismatch'
+      ? `The incident reports ${i.ip}, but linked evidence includes ${observedIps.join(', ')}. Review the source before taking action.`
+      : verification.state === 'checking'
+        ? 'Checking the incident source IP against its linked event records.'
+        : verification.state === 'partial'
+          ? 'The available event records could not fully verify the incident source IP.'
+          : 'This finding has no valid source IP or linked event IDs to verify against.';
+  const confidence = i.confidence ? (Number(i.confidence) <= 1 ? `${Math.round(Number(i.confidence) * 100)}%` : i.confidence) : '';
+  const status = i.status === 'contained' ? 'Contained' : hum(i.status);
+  el.style.setProperty('--c', `var(${SEVVAR[i.severity]})`);
+  el.innerHTML = `
+    <div class="dh">
+      <button class="close" type="button" data-act="close">Close</button>
+      <span class="sevword" style="color:var(${SEVVAR[i.severity]});font-weight:700">${hum(i.severity)}</span>
+      <h2>${esc(i.title)}</h2>
+      <div class="row2"><code title="MongoDB incident ID">${esc(i.id)}</code><code title="Reported source IP">${esc(i.ip)}</code><span>${esc(i.assetId)}</span><span>${esc(fmtT(i.first))} to ${esc(fmtT(i.last))}</span>
+        <span class="incident-status ${i.status === 'contained' ? 'status-contained' : ''}">${esc(status)}</span></div>
+    </div>
+    <div class="db">
+      <section><h4>What happened</h4>
+        <p>${i.summary ? esc(i.summary) : 'No detection summary was returned for this finding.'}</p>
+        <p class="note">${i.detector ? `${esc(hum(i.detector))} detection` : 'Detection engine finding'}${i.ruleId ? ` · ${esc(i.ruleId)}` : ''}${confidence ? ` · ${esc(confidence)} confidence` : ''}.</p></section>
+      <section><h4>Source IP verification</h4><p class="reason"><span class="ip-check ${verification.state}">${esc(verification.label)}</span><br>${esc(verificationDetail)}${linkedEvents.length ? `<br><span class="note">Checked against ${linkedEvents.length} of ${i.eventIds.length} linked event records${observedIps.length ? ` · observed: ${esc(observedIps.join(', '))}` : ''}.</span>` : ''}</p></section>
+      <section><h4>Why it was flagged</h4><p class="reason">${esc(i.reason || (i.ruleId ? `The ${i.ruleId} detection rule matched ${i.eventCount || i.eventIds.length || 'one or more'} supporting events.` : 'The detection engine recorded this finding from the uploaded logs.'))}</p></section>
+      ${i.actions.length ? `<section><h4>What to do now</h4><ul class="checks">${i.actions.map(a => `<li><label><input type="checkbox"><span>${esc(a)}</span></label></li>`).join('')}</ul></section>` : ''}
+      ${safeIp ? `<section><h4>Block this address</h4>
+        <div class="cmd"><code>sudo ufw deny from ${esc(i.ip)}</code><button type="button" data-copy="sudo ufw deny from ${esc(i.ip)}">Copy</button></div>
+        <div class="cmd"><code>deny ${esc(i.ip)};</code><button type="button" data-copy="deny ${esc(i.ip)};">Copy</button></div>
+        <p class="note">The first line is for a Linux firewall (ufw), the second for an nginx config. IP matched linked evidence.</p></section>` : verification.state === 'mismatch' ? `<section><h4>Block this address</h4><p class="reason">Blocking commands are hidden because the source IP does not match the linked logs.</p></section>` : ''}
+      ${i.timeline.length ? `<section><h4>Attack timeline</h4><ol class="tl">${i.timeline.map(t => `<li><div class="when">${esc(fmtT(t.time))}</div><div><span class="stage">${esc(t.stage || '')}</span> ${esc(t.event || '')}</div></li>`).join('')}</ol></section>` : ''}
+      ${i.mitre.length ? `<section><h4>MITRE ATT&amp;CK techniques</h4><div class="tech">${i.mitre.map(m => `<div><a href="https://attack.mitre.org/techniques/${esc(String(m.id).replace('.','/'))}/" target="_blank" rel="noopener">${esc(m.id)} ${esc(m.name || '')}</a>${m.why ? `<small>${esc(m.why)}</small>` : ''}</div>`).join('')}</div></section>` : ''}
+      <section><h4>Supporting logs</h4>
+        ${lines.length ? `<div class="logs">${lines.map(l => `<div>${esc(l).replace(HL, '<mark>$1</mark>')}</div>`).join('')}</div>` : i.eventIds.length && i.eventIds.every(id => state.eventFailures.has(String(id))) ? `<p class="note">Could not load the linked event records. Check the FastAPI event lookup endpoint.</p>` : i.eventIds.length ? `<p class="note">Loading ${i.eventIds.length} linked event${i.eventIds.length === 1 ? '' : 's'}…</p>` : `<p class="note">No linked event records were returned for this incident.</p>`}</section>
+    </div>`;
+}
+
+/* ---------- toast ---------- */
+function toast(i){
+  const t = document.createElement('div'); t.className = 'toast'; t.style.setProperty('--c', `var(${SEVVAR[i.severity]})`);
+  t.innerHTML = `<b>New ${esc(i.severity)} incident</b>${esc(i.title)}`;
+  t.onclick = () => { openIncident(i.id); t.remove(); };
+  $('#toasts').append(t); setTimeout(() => t.remove(), 9000);
+}
+function flash(msg){ const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; $('#toasts').append(t); setTimeout(() => t.remove(), 1800); }
+
+/* ---------- upload ---------- */
+function setProg(p){ $('#prog').style.width = Math.min(100, p) + '%'; }
+function doUpload(file, src){
+  return new Promise((res, rej) => {
+    const x = new XMLHttpRequest();
+    x.open('POST', CONFIG.API_BASE + CONFIG.PATHS.upload + '?log_format=' + encodeURIComponent(src));
+    x.upload.onprogress = e => { if (e.lengthComputable) setProg(e.loaded/e.total*100); };
+    x.onload = () => {
+      if (x.status >= 200 && x.status < 300) {
+        try { res(JSON.parse(x.responseText)); }
+        catch { rej(new Error('The API returned an invalid upload response.')); }
+      } else {
+        let detail = '';
+        try { const body = JSON.parse(x.responseText); detail = body.detail || body.message || ''; } catch {}
+        rej(new Error(detail || 'The server replied with error ' + x.status));
+      }
+    };
+    x.onerror = () => rej(new Error('Could not reach the API at ' + CONFIG.API_BASE));
+    const fd = new FormData(); fd.append('file', file); x.send(fd);
+  });
+}
+
+async function poll(){
+  const wasAvailable = state.apiAvailable;
+  try {
+    const incidentPayload = await api(CONFIG.PATHS.incidents);
+    applyIncidents(incidentPayload, !state.ready);
+    state.incidentsAvailable = true;
+    state.apiAvailable = true;
+    setConn('polling');
+    const incidents = [...state.incidents.values()];
+    await fetchEvidence(incidents.flatMap(incident => incident.eventIds));
+    $('#feed').querySelector('.request-error')?.remove();
+    $('#feed').querySelector('.feed-empty')?.remove();
+    if (!$('#feed').children.length) {
+      $('#feed').innerHTML = state.eventFailures.size
+        ? '<div class="feed-empty">Some supporting events could not be loaded. Check GET /api/events/{event_id}.</div>'
+        : '<div class="feed-empty">No incident-linked events have been returned yet.</div>';
+    }
+  } catch (error) {
+    state.incidentsAvailable = false;
+    state.apiAvailable = false;
+    setConn('offline');
+    if (wasAvailable !== false) {
+      console.warn('Incident API unavailable:', error);
+    }
+    $('#feed').innerHTML = '<div class="feed-empty">Incident-linked events are unavailable until the FastAPI service responds.</div>';
+  }
+  renderIncidents(true);
+}
+
+/* ---------- events from the page ---------- */
+function bind(){
+  fillTypes();
+  $('#fIp').addEventListener('input', e => { state.filters.ip = e.target.value; renderTally(); renderIncidents(true); });
+  $('#fType').addEventListener('change', e => { state.filters.type = e.target.value; renderTally(); renderIncidents(true); });
+  $('#fRange').addEventListener('change', e => { state.filters.range = e.target.value; renderTally(); renderIncidents(true); });
+  const clear = () => { state.filters = {ip:'', type:'', sev:'', range:'24h'}; $('#fIp').value = ''; $('#fType').value = ''; $('#fRange').value = '24h'; renderTally(); renderIncidents(true); };
+  $('#clear').onclick = clear;
+  document.querySelectorAll('.tally button').forEach(b => b.onclick = () => {
+    state.filters.sev = state.filters.sev === b.dataset.sev ? '' : b.dataset.sev; renderTally(); renderIncidents(true); });
+  $('#grid').addEventListener('click', e => {
+    const act = e.target.closest('[data-act]');
+    if (act) {
+      if (act.dataset.act === 'clear') clear();
+      else if (act.dataset.act === 'connect') $('#conn').click();
+      else $('#upl').showModal();
+      return;
+    }
+    const c = e.target.closest('[data-id]'); if (c) openIncident(c.dataset.id); });
+  $('#grid').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { const c = e.target.closest('[data-id]'); if (c) { e.preventDefault(); openIncident(c.dataset.id); } } });
+  $('#feed').addEventListener('click', e => { const r = e.target.closest('.row'); if (!r) return;
+    state.filters.ip = r.dataset.ip; $('#fIp').value = r.dataset.ip; renderTally(); renderIncidents(true); });
+  $('#identityTable').addEventListener('click', e => {
+    const account = e.target.closest('[data-identity]');
+    if (account) openIdentity(account.dataset.identity);
+  });
+  $('#identityDialog').addEventListener('click', e => {
+    if (e.target.closest('[data-identity-close]')) $('#identityDialog').close();
+  });
+  $('#pause').onclick = () => {
+    state.paused = !state.paused;
+    $('#pause').textContent = state.paused ? 'Resume' : 'Pause';
+    if (!state.paused) renderFeed();
+  };
+  $('#scrim').onclick = closeDrawer;
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && state.selected) closeDrawer(); });
+  $('#drawer').addEventListener('click', e => {
+    if (e.target.closest('[data-act="close"]')) return closeDrawer();
+    const cp = e.target.closest('[data-copy]');
+    if (cp) navigator.clipboard?.writeText(cp.dataset.copy).then(() => flash('Copied'), () => flash('Copy failed'));
+  });
+  $('#conn').onclick = () => {
+    const v = prompt('API address (for example http://localhost:8000)', CONFIG.API_BASE); if (v === null) return;
+    try { localStorage.setItem('ls_api', v.trim()); } catch {} location.search = '?api=' + encodeURIComponent(v.trim());
+  };
+  /* upload dialog */
+  const dlg = $('#upl'), fileIn = $('#file'), drop = $('#drop'), msg = $('#uplMsg');
+  const setMsg = (t, err) => { msg.textContent = t; msg.className = err ? 'err' : ''; };
+  $('#openUpload').onclick = () => { setProg(0); setMsg(''); dlg.showModal(); };
+  $('#uplClose').onclick = () => dlg.close();
+  fileIn.onchange = () => { $('#dropText').textContent = fileIn.files[0] ? fileIn.files[0].name : 'Drop a file here, or click to choose one'; };
+  ['dragenter','dragover'].forEach(n => drop.addEventListener(n, e => { e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave','drop'].forEach(n => drop.addEventListener(n, e => { e.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop', e => { if (e.dataTransfer.files[0]) { fileIn.files = e.dataTransfer.files; fileIn.onchange(); } });
+  $('#uplForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const f = fileIn.files[0]; if (!f) return setMsg('Choose a log file first.', true);
+    $('#uplGo').disabled = true; setMsg('Uploading and analysing...'); setProg(5);
+    try {
+      const r = await doUpload(f, $('#src').value); setProg(100);
+      const count = Number(r.accepted_events || 0);
+      const rejected = Number(r.rejected_records || 0);
+      const incidents = r.batch?.incidents || [];
+      if (incidents.length) applyIncidents(incidents);
+      await fetchEvidence(r.batch?.event_ids || []);
+      setMsg(`Complete. ${count.toLocaleString()} events accepted, ${incidents.length} findings returned${rejected ? `, ${rejected} records rejected` : ''}.`);
+      poll();
+    } catch (err) { setMsg(err.message, true); }
+    $('#uplGo').disabled = false;
+  });
+}
+
+/* ---------- start ---------- */
+async function init(){
+  bind(); setConn('connecting');
+  renderIdentityPanel();
+  timers.spark = setInterval(renderSpark, 1000);
+  timers.age = setInterval(() => renderIncidents(true), 30000);
+  await poll();
+  state.ready = true;
+  timers.poll = setInterval(poll, CONFIG.POLL_MS);
+  updateTotal();
+}
+init();
+})();
+</script>
+</body>
+</html>
