@@ -353,7 +353,10 @@ const CONFIG = {
   PATHS: {
     incidents: '/api/incidents?limit=100',
     event:     id => '/api/events/' + encodeURIComponent(id),
-    upload:    '/api/logs/upload'
+    upload:    '/api/logs/upload',
+    brief:     id => '/api/incidents/' + encodeURIComponent(id) + '/brief',
+    notify:    id => '/api/incidents/' + encodeURIComponent(id) + '/notify',
+    contain:   id => '/api/incidents/' + encodeURIComponent(id) + '/contain'
   },
   POLL_MS: 5000
 };
@@ -375,7 +378,7 @@ const state = {
   apiAvailable:null, incidentsAvailable:null,
   filters:{ip:'', type:'', sev:'', range:'24h'},
   eventTimes:[], seen:new Set(), total:0, selected:null, fresh:new Set(), lastSig:'',
-  events:new Map(), pendingEvents:new Set(), eventFailures:new Map()
+  events:new Map(), pendingEvents:new Set(), eventFailures:new Map(), briefs:new Map()
 };
 const timers = {};
 
@@ -418,7 +421,8 @@ function normInc(r){
     detector: finding.detector || '', ruleId: finding.rule_id || '',
     timeline, eventIds: Array.isArray(r.evidence_event_ids) ? r.evidence_event_ids : [],
     evidence: Array.isArray(rawEvidence) ? rawEvidence : [rawEvidence],
-    actions: Array.isArray(rawActions) ? rawActions : [rawActions], fixes: r.longer_term_fixes || []
+    actions: Array.isArray(rawActions) ? rawActions : [rawActions], fixes: r.longer_term_fixes || [],
+    geminiBrief: r.gemini_brief || null
   };
 }
 function normEvent(r){
@@ -753,6 +757,7 @@ function renderDrawer(){
           : 'This finding has no valid source IP or linked event IDs to verify against.';
   const confidence = i.confidence ? (Number(i.confidence) <= 1 ? `${Math.round(Number(i.confidence) * 100)}%` : i.confidence) : '';
   const status = i.status === 'contained' ? 'Contained' : hum(i.status);
+  const brief = state.briefs.get(i.id) || i.geminiBrief;
   el.style.setProperty('--c', `var(${SEVVAR[i.severity]})`);
   el.innerHTML = `
     <div class="dh">
@@ -769,6 +774,14 @@ function renderDrawer(){
       <section><h4>Source IP verification</h4><p class="reason"><span class="ip-check ${verification.state}">${esc(verification.label)}</span><br>${esc(verificationDetail)}${linkedEvents.length ? `<br><span class="note">Checked against ${linkedEvents.length} of ${i.eventIds.length} linked event records${observedIps.length ? ` · observed: ${esc(observedIps.join(', '))}` : ''}.</span>` : ''}</p></section>
       <section><h4>Why it was flagged</h4><p class="reason">${esc(i.reason || (i.ruleId ? `The ${i.ruleId} detection rule matched ${i.eventCount || i.eventIds.length || 'one or more'} supporting events.` : 'The detection engine recorded this finding from the uploaded logs.'))}</p></section>
       ${i.actions.length ? `<section><h4>What to do now</h4><ul class="checks">${i.actions.map(a => `<li><label><input type="checkbox"><span>${esc(a)}</span></label></li>`).join('')}</ul></section>` : ''}
+      <section><h4>AI-assisted response</h4>
+        <div class="actions" style="justify-content:flex-start;flex-wrap:wrap">
+          <button class="btn" type="button" data-act="brief" data-id="${esc(i.id)}">Explain with Gemini</button>
+          <button class="btn" type="button" data-act="notify" data-id="${esc(i.id)}">Send security email</button>
+          ${safeIp && i.status !== 'contained' ? `<button class="btn primary" type="button" data-act="contain" data-id="${esc(i.id)}">Contain attacker IP</button>` : ''}
+        </div>
+        ${brief ? `<div class="reason" style="margin-top:10px"><strong>${esc(brief.headline || 'Gemini incident brief')}</strong><p style="margin-top:7px">${esc(brief.executive_summary || '')}</p><p class="note">${esc(brief.attack_narrative || '')}</p>${Array.isArray(brief.immediate_actions) && brief.immediate_actions.length ? `<p class="note"><strong>Next:</strong> ${esc(brief.immediate_actions.join(' · '))}</p>` : ''}</div>` : `<p class="note">Gemini receives verified detector evidence only; it does not make containment decisions.</p>`}
+      </section>
       ${safeIp ? `<section><h4>Block this address</h4>
         <div class="cmd"><code>sudo ufw deny from ${esc(i.ip)}</code><button type="button" data-copy="sudo ufw deny from ${esc(i.ip)}">Copy</button></div>
         <div class="cmd"><code>deny ${esc(i.ip)};</code><button type="button" data-copy="deny ${esc(i.ip)};">Copy</button></div>
@@ -788,6 +801,30 @@ function toast(i){
   $('#toasts').append(t); setTimeout(() => t.remove(), 9000);
 }
 function flash(msg){ const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; $('#toasts').append(t); setTimeout(() => t.remove(), 1800); }
+
+async function runResponseAction(action, id){
+  const incident = state.incidents.get(id);
+  if (!incident) return;
+  const names = {brief:'Gemini analysis', notify:'security email', contain:'containment'};
+  flash(`Requesting ${names[action]}…`);
+  try {
+    if (action === 'brief') {
+      const brief = await api(CONFIG.PATHS.brief(id), {method:'POST'});
+      state.briefs.set(id, brief);
+      renderDrawer(); flash('Gemini brief ready');
+    } else if (action === 'notify') {
+      await api(CONFIG.PATHS.notify(id), {method:'POST'});
+      flash('Security email sent');
+    } else if (action === 'contain') {
+      if (!confirm(`Contain ${incident.ip}? Only this verified source IP will be blocked.`)) return;
+      await api(CONFIG.PATHS.contain(id), {method:'POST'});
+      await poll(); renderDrawer(); flash(`${incident.ip} contained`);
+    }
+  } catch (error) {
+    console.error(`${action} failed`, error);
+    flash(`${names[action]} failed: ${error.message}`);
+  }
+}
 
 /* ---------- upload ---------- */
 function setProg(p){ $('#prog').style.width = Math.min(100, p) + '%'; }
@@ -878,6 +915,8 @@ function bind(){
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && state.selected) closeDrawer(); });
   $('#drawer').addEventListener('click', e => {
     if (e.target.closest('[data-act="close"]')) return closeDrawer();
+    const responseAction = e.target.closest('[data-act="brief"],[data-act="notify"],[data-act="contain"]');
+    if (responseAction) return runResponseAction(responseAction.dataset.act, responseAction.dataset.id);
     const cp = e.target.closest('[data-copy]');
     if (cp) navigator.clipboard?.writeText(cp.dataset.copy).then(() => flash('Copied'), () => flash('Copy failed'));
   });
